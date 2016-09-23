@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <title>dc.js example - Untappd Data Visualization</title>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" type="text/css" href="css/dc.css">
+    <link rel="stylesheet" type="text/css" href="css/leaflet.css">
+    <link rel="stylesheet" type="text/css" href="css/bootstrap.css">
+    <link rel="stylesheet" type="text/css" href="css/main.css">
+</head>
+<body>
+<div class="container-fluid">
+  <div class="row">
+    <div class="col-xs-12 dc-data-count dc-chart" id="data-count">
+      <h2>Movies
+        <small>
+          <span class="filter-count"></span> selected out of <span class="total-count"></span> records |
+           <a id="all" href="#">Reset All</a>
+          </span>
+        </small>
+      </h2>
+    </div>
+  </div>
+  <div class="row" id="control-row">
+    <div class="col-xs-2 pie-chart">
+      <h4>Year <small><a id="year">reset</a></small></h4>
+      <div class="dc-chart" id="chart-ring-year"></div>
+    </div>
+    <div class="col-xs-2 pie-chart">
+      <h4>Month <small><a id="month" href="#">reset</a></small></h4>
+      <div class="dc-chart" id="chart-ring-month"></div>
+    </div>
+    <div class="col-xs-2 pie-chart">
+      <h4>Day <small><a id="day">reset</a></small></h4>
+      <div id="chart-ring-day" class="dc-chart"></div>
+    </div>
+  </div>
+  <div class="row">
+    <div class="col-xs-6 col-md-3">
+      <div class="dc-chart" id="chart-metascore-count"></div>
+    </div>
+    <div class="col-xs-6 col-md-3">
+      <div class="dc-chart" id="chart-domestic-gross-count"></div>
+    </div>
+    <div class="col-xs-6 col-md-3">
+      <div class="dc-chart" id="chart-runtime-mins-count"></div>
+    </div>
+    <div class="col-xs-6 col-md-3">
+      <div class="dc-chart" id="chart-opening-weekend-count"></div>
+    </div>
+  </div>
+  <div class="row">
+    <div class="col-xs-12">
+      <table class="table table-bordered table-striped" id="data-table">
+        <thead>
+          <tr class="header">
+            <th>Title</th>
+            <th>Director</th>
+            <th>Genre</th>
+            <th>Metascore</th>
+            <th>User score</th>
+            <th>Number of user ratings</th>
+            <th>Year</th>
+          </tr>
+        </thead>
+      </table>
+    </div>
+  </div>
+</div>
+<script type="text/javascript" src="js/d3.js"></script>
+<script type="text/javascript" src="js/crossfilter.js"></script>
+<script type="text/javascript" src="js/dc.js"></script>
+<script type="text/javascript" src="js/leaflet.js"></script>
+<script type="text/javascript" src="js/underscore-min.js"></script>
+<script type="text/javascript">
+
+/* instantiate and configure map */
+// var map = L.map('map');
+// var breweryMarkers = new L.FeatureGroup();
+//
+// L.tileLayer('https://api.tiles.mapbox.com/v4/{id}/{z}/{x}/{y}.png?access_token={accessToken}', {
+//   id: '<your id here>',
+//   accessToken: '<your token here>',
+//   maxZoom: 16
+// } ).addTo(map);
+
+
+/* Parse csv file, create charts, draw markers on map */
+d3.csv('combined_movie_data.csv', function (error, data) {
+  var movieData = data;
+  console.log(data)
+  // var fullDateFormat = d3.time.format('%Y-%m-%d');
+  // var yearFormat = d3.time.format('%Y');
+  // var monthFormat = d3.time.format('%m');
+  // var dayOfWeekFormat = d3.time.format('%d');
+
+  // normalize/parse data so dc can correctly sort & bin them
+  // I like to think of each "d" as a row in a spreadsheet
+  _.each(movieData, function(d) {
+    d.count = +d.count;
+    // round to nearest 0.25
+    d.metascore = Math.round(+d.metascore * 4) / 4;
+
+    d.domestic_gross = Math.round(+d.log_domestic_gross * 10) / 10;
+    // round to nearest 0.5
+    d.runtime_minutes = Math.round(+d.runtime_minutes *2) / 2;
+    // round to nearest 0.25
+    d.opening_weekend_take = Math.floor(+d.log_opening_weekend_take * 10) / 10;
+    console.log(d.release_date_wide)
+    if (d.release_date_wide){
+//        d.first_had_dt = fullDateFormat.parse(d.release_date_wide);
+        d.release_year = +d.year_release;
+        d.release_month = d.month;
+        d.first_had_day = d.weekday;
+    };
+  });
+
+  // set crossfilter
+  var ndx = crossfilter(movieData);
+
+  // create dimensions (x-axis values)
+  var yearDim  = ndx.dimension(function(d) {return d.release_year;}),
+      // dc.pluck: short-hand for same kind of anon. function we used for yearDim
+      monthDim  = ndx.dimension(dc.pluck('release_month')),
+      dayOfWeekDim = ndx.dimension(dc.pluck('first_had_day')),
+      metascoreDim = ndx.dimension(dc.pluck('metascore')),
+      domestic_grossDim = ndx.dimension(dc.pluck('domestic_gross')),
+      runtime_minutesDim = ndx.dimension(dc.pluck('runtime_minutes'))
+      opening_weekend_takeDim = ndx.dimension(dc.pluck('opening_weekend_take'))
+
+//      commRatingDim = ndx.dimension(function(d) {return d.metascore;}),
+//      abvDim = ndx.dimension(function(d) {return d.domestic_gross;}),
+//      ibuDim = ndx.dimension(function(d) {return d.beer.beer_ibu;}),
+      allDim = ndx.dimension(function(d) {return d;});
+
+  // create groups (y-axis values)
+  var all = ndx.groupAll();
+  var countPerYear = yearDim.group().reduceCount(),
+      countPerMonth = monthDim.group().reduceCount(),
+      countPerDay = dayOfWeekDim.group().reduceCount(),
+
+      countPerMetascore = metascoreDim.group().reduceCount(),
+      countPerDomesticGross = domestic_grossDim.group().reduceCount(),
+
+      countPerRuntimeMins = runtime_minutesDim.group().reduceCount(),
+      countPerOpeningWeekendTake = opening_weekend_takeDim.group().reduceCount();
+
+  // specify charts
+  var yearChart   = dc.pieChart('#chart-ring-year'),
+      monthChart   = dc.pieChart('#chart-ring-month'),
+      dayChart   = dc.pieChart('#chart-ring-day'),
+
+      metascoreCountChart  = dc.barChart('#chart-metascore-count'),
+      domesticGrossCountChart  = dc.barChart('#chart-domestic-gross-count'),
+      runtimeMinsCountChart  = dc.barChart('#chart-runtime-mins-count'),
+      openingWeekendCountChart  = dc.barChart('#chart-opening-weekend-count'),
+      dataCount = dc.dataCount('#data-count')
+      dataTable = dc.dataTable('#data-table');
+
+  yearChart
+      .width(150)
+      .height(150)
+      .dimension(yearDim)
+      .group(countPerYear)
+      .innerRadius(20);
+
+  monthChart
+      .width(150)
+      .height(150)
+      .dimension(monthDim)
+      .group(countPerMonth)
+      .innerRadius(20)
+      .ordering(function (d) {
+        var order = {
+          'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4,
+          'May': 5, 'Jun': 6, 'Jul': 7, 'Aug': 8,
+          'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
+        };
+        return order[d.key];
+      });
+
+  dayChart
+      .width(150)
+      .height(150)
+      .dimension(dayOfWeekDim)
+      .group(countPerDay)
+      .innerRadius(20)
+      .ordering(function (d) {
+        var order = {
+          'Mon': 0, 'Tue': 1, 'Wed': 2, 'Thu': 3,
+          'Fri': 4, 'Sat': 5, 'Sun': 6
+        }
+        return order[d.key];
+      }
+     );
+
+  metascoreCountChart
+      .width(300)
+      .height(180)
+      .dimension(metascoreDim)
+      .group(countPerMetascore)
+      .x(d3.scale.linear().domain([0,d3.max(movieData, function (d) { return d.metascore; }) + 0.2]))
+      .elasticY(true)
+      .centerBar(true)
+      .barPadding(5)
+      .xAxisLabel('Metascore')
+      .margins({top: 10, right: 20, bottom: 50, left: 50});
+//  metascoreCountChart.xAxis().tickValues([0, 1, 2, 3, 4, 5]);
+
+  domesticGrossCountChart
+      .width(300)
+      .height(180)
+      .dimension(domestic_grossDim)
+      .group(countPerDomesticGross)
+      .x(d3.scale.linear().domain([0,d3.max(movieData, function (d) { return d.domestic_gross; }) + 0.2]))
+      .elasticY(true)
+      .centerBar(true)
+      .barPadding(5)
+      .xAxisLabel('Log domestic gross')
+      .margins({top: 10, right: 20, bottom: 50, left: 50});
+//  domesticGrossCountChart.xAxis().tickValues([0, 1, 2, 3, 4, 5]);
+
+  runtimeMinsCountChart
+      .width(300)
+      .height(180)
+      .dimension(runtime_minutesDim)
+      .group(countPerRuntimeMins)
+      .x(d3.scale.linear().domain([-0.2, d3.max(movieData, function (d) { return d.runtime_minutes; }) + 0.2]))
+      .elasticY(true)
+      .centerBar(true)
+      .barPadding(2)
+      .xAxisLabel('Runtime in minutes')
+//      .yAxisLabel('Count')
+      .margins({top: 10, right: 20, bottom: 50, left: 50});
+
+  openingWeekendCountChart
+      .width(300)
+      .height(180)
+      .dimension(opening_weekend_takeDim)
+      .group(countPerOpeningWeekendTake)
+      .x(d3.scale.linear().domain([-2, d3.max(movieData, function (d) { return d.opening_weekend_take; }) + 2]))
+      .elasticY(true)
+      .centerBar(true)
+      .barPadding(5)
+      .xAxisLabel('Log opening weekend take')
+      .xUnits(function (d) { return 5;})
+      .margins({top: 10, right: 20, bottom: 50, left: 50});
+
+  dataCount
+      .dimension(ndx)
+      .group(all);
+
+   dataTable
+    .dimension(allDim)
+    .group(function (d) { return 'dc.js insists on putting a row here so I remove it using JS'; })
+    .size(100)
+    .columns([
+      function (d) { return d.title; },
+      function (d) { return d.director; },
+      function (d) { return d.genre; },
+      function (d) { return d.metascore; },
+      function (d) { return d.user_score; },
+      function (d) { return d.num_user_ratings; },
+      function (d) { return d.year; }
+    ])
+    .sortBy(dc.pluck('metascore'))
+    .order(d3.descending)
+    .on('renderlet', function (table) {
+      // each time table is rendered remove nasty extra row dc.js insists on adding
+      table.select('tr.dc-table-group').remove();
+
+      // // update map with breweries to match filtered data
+      // breweryMarkers.clearLayers();
+      // _.each(allDim.top(Infinity), function (d) {
+      //   var loc = d.brewery.location;
+      //   var name = d.brewery.brewery_name;
+      //   var marker = L.marker([loc.lat, loc.lng]);
+      //   marker.bindPopup("<p>" + name + " " + loc.brewery_city + " " + loc.brewery_state + "</p>");
+      //   breweryMarkers.addLayer(marker);
+      // });
+      // map.addLayer(breweryMarkers);
+      // map.fitBounds(breweryMarkers.getBounds());
+    });
+
+  // register handlers
+  d3.selectAll('a#all').on('click', function () {
+    dc.filterAll();
+    dc.renderAll();
+  });
+
+  d3.selectAll('a#year').on('click', function () {
+    yearChart.filterAll();
+    dc.redrawAll();
+  });
+
+  d3.selectAll('a#month').on('click', function () {
+    monthChart.filterAll();
+    dc.redrawAll();
+  });
+
+  d3.selectAll('a#day').on('click', function () {
+    dayChart.filterAll();
+    dc.redrawAll();
+  });
+
+  // showtime!
+  dc.renderAll();
+
+});
+
+</script>
+</body></html>

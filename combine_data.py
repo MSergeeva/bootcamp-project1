@@ -16,8 +16,8 @@ def main():
     mojo_df = pd.DataFrame(mojo_data)
     metacritic_df = pd.DataFrame(metacritic_data)
 
-    combined_df = pd.merge(mojo_df, metacritic_df, how="inner", on="title")
-    print combined_df.head(3)
+    combined_df = pd.merge(mojo_df, metacritic_df, how="inner", on=["title", "year", "director"])
+    #print combined_df.head(3)
     combined_df.to_csv("combined_movie_data.csv", encoding="utf-8")
 
 
